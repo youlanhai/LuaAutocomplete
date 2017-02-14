@@ -30,7 +30,7 @@ class LocalsAutocomplete(sublime_plugin.EventListener):
 		return True
 	
 	def on_query_completions(self, view, prefix, locations):
-		if view.settings().get("syntax") != "Packages/Lua/Lua.tmLanguage":
+		if view.settings().get("syntax") != "Packages/Lua/Lua.sublime-syntax":
 			# Not Lua, don't do anything.
 			return
 		
@@ -56,7 +56,7 @@ class RequireAutocomplete(sublime_plugin.EventListener):
 				yield fname
 	
 	def on_query_completions(self, view, prefix, locations):
-		if view.settings().get("syntax") != "Packages/Lua/Lua.tmLanguage":
+		if view.settings().get("syntax") != "Packages/Lua/Lua.sublime-syntax":
 			# Not Lua, don't do anything.
 			return
 		
