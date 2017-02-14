@@ -5,7 +5,8 @@ import re
 
 var_pattern = re.compile(r"^(\w+)\s*=")
 fun_pattern = re.compile(r"^function\s*(\w+)\s*\(([\w,]*)\)")
-
+cls_var_pattern = re.compile(r"self\.(\w+)\s*=")
+cls_fun_pattern = re.compile(r"^function\s+(\w+)[.:](\w+)\s*\(([\w,]*)\)")
 
 indices = {} # path -> variables
 
@@ -60,25 +61,48 @@ def gen_indices_in_path(path):
 def gen_indices_in_file(key, path):
 	global indices
 
-	ret = {}
+	module = {}
+	classes = {}
 	with open(path, "r", encoding="utf-8") as f:
+		last_cname = None
+
 		for line in f.readlines():
 			match = var_pattern.match(line)
 			if match:
 				var = match.group(1)
-				ret[var + "\tvariable"] = var
+				module[var + "\tvariable"] = var
 				continue
 
 			match = fun_pattern.match(line)
 			if match:
 				var = match.group(1)
 				args = match.group(2)
-				ret[var + "\tfunction"] = var + "($0%s)" % args
+				module[var + "\tfunction"] = var + "($0%s)" % args
+				continue
 
-	if len(ret) > 0:
-		values = [[k, v] for k, v in ret.items()]
+			if last_cname is not None:
+				match = cls_var_pattern.match(line)
+				if match:
+					var = match.group(1)
+					classes[last_cname][var + "\tvariable"] = var
+					continue
+
+			match = cls_fun_pattern.match(line)
+			if match:
+				cname, var, args = match.group(1), match.group(2), match.group(3)
+				classes.setdefault(cname, {})[var + "\tfunction"] = var + "($0%s)" % args
+				last_cname = cname
+
+	if len(module) > 0:
+		values = [[k, v] for k, v in module.items()]
 		values.sort(key = lambda x: x[1])
 		indices[key] = values
+
+	if len(classes) > 0:
+		for cname, fileds in classes.items():
+			values = [[k, v] for k, v in fileds.items()]
+			values.sort(key = lambda x: x[1])
+			indices[key + "." + cname] = values
 
 	return
 
