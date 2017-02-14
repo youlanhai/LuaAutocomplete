@@ -75,18 +75,19 @@ class RequireAutocomplete(sublime_plugin.EventListener):
 		module_path = match.group(1).split(".")
 		
 		results = []
-		proj_dir = os.path.dirname(proj_file)
 		
-		for proj_subdir in view.window().project_data()["folders"]:
-			proj_subdir = proj_subdir["path"]
-			cur_path = os.path.join(proj_dir, proj_subdir, *(module_path[:-1]))
-			print("curpath:", cur_path)
-			if not os.path.exists(cur_path) or not os.path.isdir(cur_path):
-				continue
-			
-			_, dirs, files = next(os.walk(cur_path)) # walk splits directories and regular files for us
-			
-			results.extend(map(lambda x: (x+"\tsubdirectory", x+"."), dirs))
-			results.extend(map(lambda x: (x+"\tmodule", x), RequireAutocomplete.filter_lua_files(files)))
+		for proj_data in view.window().project_data()["folders"]:
+			proj_dir = proj_data["path"]
+			lua_paths = proj_data.get("lua_paths", ("", ))
+			for lpath in lua_paths:
+				cur_path = os.path.join(proj_dir, lpath, *(module_path[:-1]))
+				if not os.path.exists(cur_path) or not os.path.isdir(cur_path):
+					continue
+				print("curpath:", cur_path)
+				
+				_, dirs, files = next(os.walk(cur_path)) # walk splits directories and regular files for us
+				
+				results.extend(map(lambda x: (x+"\tsubdirectory", x), dirs))
+				results.extend(map(lambda x: (x+"\tmodule", x), RequireAutocomplete.filter_lua_files(files)))
 		
 		return results, sublime.INHIBIT_WORD_COMPLETIONS | sublime.INHIBIT_EXPLICIT_COMPLETIONS
