@@ -2,6 +2,7 @@
 import sublime, sublime_plugin
 import re, os, itertools
 from LuaAutocomplete.locals import LocalsFinder
+from LuaAutocomplete.index_module import index_module
 
 class LocalsAutocomplete(sublime_plugin.EventListener):
 	@staticmethod
@@ -40,11 +41,14 @@ class LocalsAutocomplete(sublime_plugin.EventListener):
 			return
 		
 		src = view.substr(sublime.Region(0, view.size()))
+
+		results = index_module(view, location, src)
+		if results is not None: return results
 		
 		localsfinder = LocalsFinder(src)
 		varz = localsfinder.run(location)
 		
-		return [(name+"\t"+data.vartype,name) for name, data in varz.items()], sublime.INHIBIT_WORD_COMPLETIONS
+		return [(name+"\t"+data.vartype,name) for name, data in varz.items()]
 
 class RequireAutocomplete(sublime_plugin.EventListener):
 	
