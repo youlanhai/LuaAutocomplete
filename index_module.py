@@ -5,6 +5,8 @@ import re
 
 var_pattern = re.compile(r"^(\w+)\s*=")
 fun_pattern = re.compile(r"^function\s*(\w+)\s*\(([\w,]*)\)")
+cls_pattern = re.compile(r"(\w+)\s*=\s*class\(.*,\s*(\w+)\s*\)")
+inf_pattern = re.compile(r"")
 cls_var_pattern = re.compile(r"self\.(\w+)\s*=")
 cls_fun_pattern = re.compile(r"^function\s+(\w+)[.:](\w+)\s*\(([\w,]*)\)")
 
