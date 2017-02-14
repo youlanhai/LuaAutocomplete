@@ -23,11 +23,11 @@ LuaAutocomplete
 如果找到了对应的模块，会从模块中搜索符号，用于自动补全提示。
 
 # 一些自动补全的配置
-```json
+```js
 {
 	// 提示列表中，翻到编译之后循环到开头/结尾，而不是直接关闭提示框。
 	"auto_complete_cycle": true,
-	
+
 	// 输入“.”、“:”的时候，显示补全提示框。
 	"auto_complete_triggers":
 	[
@@ -35,6 +35,6 @@ LuaAutocomplete
 			"characters": ".:",
 			"selector": "source.lua"
 		}
-	],
+	]
 }
 ```
