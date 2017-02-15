@@ -6,7 +6,7 @@ import re
 var_pattern = re.compile(r"^(\w+)\s*=")
 fun_pattern = re.compile(r"^function\s*(\w+)\s*\(([\w,]*)\)")
 cls_pattern = re.compile(r"(\w+)\s*=\s*class\(.*,\s*(\w+)\s*\)")
-inf_pattern = re.compile(r"")
+inf_pattern = re.compile(r"implement\(\s*(\w+)\s*(?:,\s*(\w+)\s*)+\)")
 cls_var_pattern = re.compile(r"self\.(\w+)\s*=")
 cls_fun_pattern = re.compile(r"^function\s+(\w+)[.:](\w+)\s*\(([\w,]*)\)")
 
@@ -21,16 +21,51 @@ def index_module(view, location, content):
 	if pos <= 0: return None
 
 	word = view.substr(sublime.Region(pos, location))
-	names = word.split('.')
+	names = word.replace(':', '.').split('.')
 	if len(names) != 2: return None
 
 	first_name = names[0]
+	if first_name == "self":
+		return index_self(location, content)
+
 	path = find_require_path(first_name, content)
 	print("prefix", first_name, path)
 
 	if path is None: return None
 
 	return indices.get(path.replace("/", ".")), sublime.INHIBIT_WORD_COMPLETIONS
+
+def index_self(location, content):
+	pos = 0
+	last_cname = None
+	self_cname = None
+	classes = {}
+	for line in content.split('\n'):
+		pos += len(line) + 1
+
+		if last_cname:
+			match = cls_var_pattern.search(line)
+			if match:
+				var = match.group(1)
+				classes[last_cname][var + "\tvar"] = var
+				continue
+
+		match = cls_fun_pattern.match(line)
+		if match:
+			cname, var, args = match.group(1), match.group(2), match.group(3)
+			classes.setdefault(cname, {})[var + "\tfunction"] = "%s($0%s)" % (var, args, )
+			if pos < location:
+				self_cname = cname
+			last_cname = cname
+
+	if self_cname is None: return None
+
+	fileds = classes.get(self_cname)
+	if fileds is None: return None
+
+	values = list(fileds.items())
+	values.sort(key = lambda x: x[0])
+	return values
 
 def generate_indices():
 	window = sublime.active_window()
@@ -72,7 +107,7 @@ def gen_indices_in_file(key, path):
 			match = var_pattern.match(line)
 			if match:
 				var = match.group(1)
-				module[var + "\tvariable"] = var
+				module[var + "\tvar"] = var
 				continue
 
 			match = fun_pattern.match(line)
@@ -83,16 +118,16 @@ def gen_indices_in_file(key, path):
 				continue
 
 			if last_cname is not None:
-				match = cls_var_pattern.match(line)
+				match = cls_var_pattern.search(line)
 				if match:
 					var = match.group(1)
-					classes[last_cname][var + "\tvariable"] = var
+					classes[last_cname][var + "\tvar"] = var
 					continue
 
 			match = cls_fun_pattern.match(line)
 			if match:
 				cname, var, args = match.group(1), match.group(2), match.group(3)
-				classes.setdefault(cname, {})[var + "\tfunction"] = var + "($0%s)" % args
+				classes.setdefault(cname, {})[var + "\tfunction"] = "%s($0%s)" % (var, args)
 				last_cname = cname
 
 	if len(module) > 0:
