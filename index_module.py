@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import sublime
+import sublime, sublime_plugin
 import os
 import re
 
@@ -68,6 +68,10 @@ def index_self(location, content):
 	return values
 
 def generate_indices():
+	print("generate lua project indices.")
+	global indices
+	indices = {}
+
 	window = sublime.active_window()
 	for proj_data in window.project_data()["folders"]:
 		proj_dir = proj_data["path"]
@@ -96,8 +100,6 @@ def gen_indices_in_path(path):
 	return
 
 def gen_indices_in_file(key, path):
-	global indices
-
 	module = {}
 	classes = {}
 	with open(path, "r", encoding="utf-8") as f:
@@ -147,4 +149,9 @@ def find_require_path(name, content):
 	pattern = r"""%s\s*=\s*require\s*\(?\s*["']([\w\.]+)""" % name
 	match = re.search(pattern, content)
 	return match.group(1) if match else None
+
+class LuaIndexProjectCommand(sublime_plugin.WindowCommand):
+	def run(self):
+		generate_indices()
+		self.window.status_message("generate lua project index finished.")
 
