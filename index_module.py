@@ -4,11 +4,11 @@ import os
 import re
 
 var_pattern = re.compile(r"^(\w+)\s*=")
-fun_pattern = re.compile(r"^function\s*(\w+)\s*\(([\w,]*)\)")
+fun_pattern = re.compile(r"^function\s*(\w+)\s*\(([\w\s,]*)\)")
 cls_pattern = re.compile(r"(\w+)\s*=\s*class\(.*,\s*(\w+)\s*\)")
 inf_pattern = re.compile(r"implement\(\s*(\w+)\s*(?:,\s*(\w+)\s*)+\)")
 cls_var_pattern = re.compile(r"self\.(\w+)\s*=")
-cls_fun_pattern = re.compile(r"^function\s+(\w+)[.:](\w+)\s*\(([\w,]*)\)")
+cls_fun_pattern = re.compile(r"^function\s+(\w+)[\.:](\w+)\s*\(([\w,\s]*)\)")
 
 indices = {} # path -> variables
 
@@ -58,6 +58,7 @@ def index_self(location, content):
 				self_cname = cname
 			last_cname = cname
 
+	print("class name", self_cname)
 	if self_cname is None: return None
 
 	fileds = classes.get(self_cname)
