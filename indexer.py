@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-import sublime, sublime_plugin
+import sublime
 import os
 import re
-import imp
 import json
 
 var_pattern = re.compile(r"^(\w+)\s*=")

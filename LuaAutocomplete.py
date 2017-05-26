@@ -2,7 +2,7 @@
 import sublime, sublime_plugin
 import re, os, itertools
 from LuaAutocomplete.locals import LocalsFinder
-from LuaAutocomplete import index_module as indexer
+from LuaAutocomplete import indexer
 
 class LocalsAutocomplete(sublime_plugin.EventListener):
 	@staticmethod
