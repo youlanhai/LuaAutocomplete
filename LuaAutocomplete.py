@@ -98,7 +98,7 @@ class RequireAutocomplete(sublime_plugin.EventListener):
 
 class LuaIndexProjectCommand(sublime_plugin.WindowCommand):
 	def run(self):
-		generate_indices()
+		indexer.generate_indices()
 		self.window.status_message("generate lua project index finished.")
 
 		indexer.write_debug_info()
