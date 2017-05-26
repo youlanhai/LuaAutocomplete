@@ -2,6 +2,8 @@
 import sublime, sublime_plugin
 import os
 import re
+import imp
+import json
 
 var_pattern = re.compile(r"^(\w+)\s*=")
 fun_pattern = re.compile(r"^function\s*(\w+)\s*\(([\w\s,]*)\)")
@@ -10,9 +12,6 @@ interface_pattern = re.compile(r"^implement\(\s*(\w+)\s*,(.*)\)")
 cls_var_pattern = re.compile(r"self\.(\w+)\s*=")
 cls_fun_pattern = re.compile(r"^function\s+(\w+)[\.:](\w+)\s*\(([\w,\s]*)\)")
 require_pattern = re.compile(r"""(\w+)\s*=\s*require\s*\(?\s*["']([\w\.]+)""")
-
-indices = {} # path -> variables
-classes_info = {}
 
 BUILTIN_MODULES = {
 	"coroutine" : ("create", "resume", "running", "status", "wrap", "yield"),
@@ -27,10 +26,9 @@ BUILTIN_MODULES = {
 					"getmetatable", "setmetatable", "getregistry", "getupvalue", "setupvalue", "traceback"),
 }
 
-def index_module(view, location, content):
-	if len(indices) == 0:
-		generate_indices()
+PROJECT_DATAS = {}
 
+def index_module(view, location, content):
 	# find whole word
 	pos = view.find_by_class(location, False, sublime.CLASS_WORD_START, " ")
 	if pos <= 0: return None
@@ -44,14 +42,14 @@ def index_module(view, location, content):
 	if first_name in BUILTIN_MODULES:
 		return index_builtin(first_name)
 
-	module_path = to_local_path(view.file_name())
-	if module_path is None:
-		print("Failed get local path")
-		return None
+	proj_indexer = find_project_indexer(view.file_name())
 
-	indexer = LuaIndexer(module_path, location)
+	indexer = proj_indexer.find_file_indexer(view.file_name())
+	if indexer is None:
+		print("failed find file indexer")
+		return
+
 	indexer.parse_content(content)
-
 	return indexer.index_value(first_name)
 
 
@@ -59,77 +57,166 @@ def index_builtin(key):
 	methods = BUILTIN_MODULES[key]
 	return [[name + "\t" + key, name] for name in methods]
 
-def collect_bases(bases, cpath):
-	bases.add(cpath)
 
-	cls_info = classes_info.get(cpath)
-	if cls_info is None: return
+def is_abs_path(path):
+	if len(path) > 1 and path[0] == '/': return True
+	if len(path) > 2 and path[1] == ':': return True
+	return False
 
-	for base in cls_info.get(".bases", ()):
-		if base not in bases:
-			collect_bases(bases, base)
+def load_python_file(path):
+	module = {}
+	with open(path, "r") as f:
+		obj = compile(f.read(), path, "exec")
+		exec(obj, globals(), module)
+	return module
 
-def to_local_path(full_path):
-	for proj_data in sublime.active_window().project_data()["folders"]:
-		proj_dir = proj_data["path"]
-		lua_paths = proj_data.get("lua_paths", ())
-		for lpath in lua_paths:
-			cur_path = os.path.join(proj_dir, lpath)
-			if not os.path.isdir(cur_path): continue
+def get_all_project_paths():
+	paths = []
 
-			relative_path = os.path.relpath(full_path, cur_path)
-			if relative_path[0] != '.':
-				name = relative_path.split('.')[0]
-				return name.replace("/", ".").replace("\\", ".")
+	window = sublime.active_window()
 
-	return None
+	root_path = ""
+	project_file_name = window.project_file_name()
+	if project_file_name:
+		root_path = os.path.dirname(project_file_name)
+
+	for proj_data in window.project_data()["folders"]:
+		proj_path = proj_data["path"]
+
+		if not is_abs_path(proj_path):
+			proj_path = os.path.normpath(os.path.join(root_path, proj_path))
+
+		if not os.path.exists(proj_path):
+			continue
+
+		paths.append(proj_path)
+
+	return paths
 
 def generate_indices():
 	print("generate lua project indices.")
-	global indices
-	indices = {"_G" : [["_G", "_G"]] }
 
-	global classes_info
-	classes_info = {}
+	paths = get_all_project_paths()
+	for project_path in paths:
+		proj_indexer = ProjectIndexer(project_path)
+		proj_indexer.generate_indices()
 
-	window = sublime.active_window()
-	for proj_data in window.project_data()["folders"]:
-		proj_dir = proj_data["path"]
-		lua_paths = proj_data.get("lua_paths")
-		if lua_paths is None:
-			sublime.error_message("please set 'lua_paths' in project setting file.")
-			continue
+		PROJECT_DATAS[project_path] = proj_indexer
 
-		for lpath in lua_paths:
-			cur_path = os.path.join(proj_dir, lpath)
-			if not os.path.exists(cur_path) or not os.path.isdir(cur_path):
+	print("finished in %d path" % len(paths))
+	return
+
+def find_project_indexer(file_name):
+	for project_path in get_all_project_paths():
+		if file_name.startswith(project_path):
+			return get_or_load_project_indexer(project_path)
+	return None
+
+def get_or_load_project_indexer(project_path):
+	proj_indexer = PROJECT_DATAS.get(project_path)
+	if proj_indexer is None:
+		
+		proj_indexer = ProjectIndexer(project_path)
+		proj_indexer.generate_indices()
+		PROJECT_DATAS[project_path] = proj_indexer
+
+	return proj_indexer
+
+def path_to_module_name(path):
+	return path.replace('\\', '.').replace('/', '.')
+
+class ProjectIndexer(object):
+	def __init__(self, project_path):
+		self.project_path = project_path
+
+		self.indices = {"_G" : [["_G", "_G"]] }
+		self.classes_info = {}
+		self.file_indexers = {}
+
+		self.config_module = self.load_config_module()
+		self.lua_paths = []
+
+		self.parse_config()
+
+	def generate_indices(self):
+		for path in self.lua_paths:
+			self.gen_indices_in_path(path)
+		return
+
+	def load_config_module(self):
+		config_file = os.path.join(self.project_path, "lua-autocomplete.py")
+		if not os.path.exists(config_file):
+			return None
+
+		return load_python_file(config_file)
+
+	def parse_config(self):
+		if not self.config_module:
+			return
+
+		for path in self.config_module["LUA_PATHS"]:
+			lua_path = os.path.join(self.project_path, path)
+			if not os.path.exists(lua_path) or not os.path.isdir(lua_path):
 				continue
 
-			gen_indices_in_path(cur_path)
+			self.lua_paths.append(lua_path)
 
-	return
+		return
+
+	def gen_indices_in_path(self, path):
+		print("parse lua:", path)
+
+		for root, dirs, files in os.walk(path):
+			for fname in files:
+				name, ext = os.path.splitext(fname)
+				if ext != ".lua": continue
+
+				fpath = os.path.join(root, name)
+				fpath = os.path.relpath(fpath, path)
+				module_name = path_to_module_name(fpath)
+
+				indexer = FileIndexer(self, module_name)
+				indexer.parse_file(os.path.join(root, fname))
+
+				self.file_indexers[module_name] = indexer
+
+		return
+
+	def add_symbol(self, name, symbols):
+		self.indices[name] = symbols
+
+	def get_symbol(self, name):
+		return self.indices.get(name)
+
+	def get_or_add_class(self, class_name):
+		return self.classes_info.setdefault(class_name, {})
+
+	def get_class(self, class_name):
+		return self.classes_info.get(class_name)
+
+	def is_class(self, name):
+		return name in self.classes_info
+
+	def find_file_indexer(self, file_path):
+		for lua_path in self.lua_paths:
+			relative_path = os.path.relpath(file_path, lua_path)
+			if relative_path[0] != '.':
+				module_name = path_to_module_name(os.path.splitext(relative_path)[0])
+
+				indexer = self.file_indexers.get(module_name)
+				if indexer is None:
+					indexer = FileIndexer(self, module_name)
+					self.file_indexers[key] = indexer
+
+				return indexer
+
+		return None
 
 
-def gen_indices_in_path(path):
-	print("parse lua:", path)
-	for root, dirs, files in os.walk(path):
-		for fname in files:
-			name, ext = os.path.splitext(fname)
-			if ext != ".lua": continue
-
-			key = os.path.relpath(root, path)
-			key = key.replace('\\', '.').replace('/', '.')
-			key += "." + name
-
-			indexer = LuaIndexer(key)
-			indexer.parse_file(os.path.join(root, fname))
-
-	return
-
-
-class LuaIndexer:
-	def __init__(self, module_name, location = 0):
-		super(LuaIndexer, self).__init__()
+class FileIndexer:
+	def __init__(self, proj_indexer, module_name, location = 0):
+		super(FileIndexer, self).__init__()
+		self.proj_indexer = proj_indexer
 		self.module_name = module_name
 
 		self.requires = {}
@@ -147,9 +234,9 @@ class LuaIndexer:
 			self.module[cname + "\tclass"] = cname
 
 			cpath = self.module_name + "." + cname
-			indices[cpath] = cls_info
+			self.proj_indexer.add_symbol(cpath, cls_info)
 
-		indices[self.module_name] = self.module
+		self.proj_indexer.add_symbol(self.module_name, self.module)
 
 
 	def parse_file(self, path, encoding = "utf-8"):
@@ -198,7 +285,7 @@ class LuaIndexer:
 				print("Failed find base class:", cname, base_name)
 				return
 
-			cls_info = classes_info.setdefault(cname, {})
+			cls_info = self.proj_indexer.get_or_add_class(cname)
 			cls_info[".bases"] = [base_path, ]
 			return
 
@@ -220,7 +307,7 @@ class LuaIndexer:
 
 				bases.append(base_path)
 
-			cls_info = classes_info.setdefault(cname, {})
+			cls_info = self.proj_indexer.get_or_add_class(cname)
 			cls_info.setdefault(".bases", []).extend(bases)
 			return
 
@@ -278,12 +365,12 @@ class LuaIndexer:
 		cname = self.module_name + "." + self.self_cname
 
 		bases = set()
-		collect_bases(bases, cname)
+		self.collect_bases(bases, cname)
 		#print("bases", sorted(bases))
 
 		values = {}
 		for base in bases:
-			fileds = indices.get(base)
+			fileds = self.proj_indexer.get_symbol(base)
 			if fileds is None: continue
 
 			values.update(fileds)
@@ -304,15 +391,15 @@ class LuaIndexer:
 
 	def index_class_by_cname(self, cname):
 		#print("try class", cname)
-		if cname not in classes_info: return None # not class
+		if not self.proj_indexer.is_class(cname): return None
 
 		bases = set()
-		collect_bases(bases, cname)
+		self.collect_bases(bases, cname)
 		#print("bases", sorted(bases))
 
 		values = {}
 		for base in bases:
-			fileds = indices.get(base)
+			fileds = self.proj_indexer.get_symbol(base)
 			if fileds is None: continue
 
 			for k, v in fileds.items():
@@ -326,7 +413,7 @@ class LuaIndexer:
 		#print("module", path)
 		if path is None: return None
 
-		values = indices.get(path)
+		values = self.proj_indexer.get_symbol(path)
 		return self.to_sorted_values(values)
 
 	def to_sorted_values(self, symbols):
@@ -337,8 +424,38 @@ class LuaIndexer:
 		return ret
 
 
+	def collect_bases(self, bases, cpath):
+		bases.add(cpath)
+
+		cls_info = self.proj_indexer.get_class(cpath)
+		if cls_info is None: return
+
+		for base in cls_info.get(".bases", ()):
+			if base not in bases:
+				self.collect_bases(bases, base)
+
+		return
+
+
+def write_debug_info():
+	datas = {}
+
+	for path, indexer in PROJECT_DATAS.items():
+		datas[path] = {
+			"indices" : indexer.indices,
+			"classes" : indexer.classes_info,
+		}
+
+	temp_file = os.path.join(sublime.cache_path(), "lua-autocomplete-temp.json")
+	with open(temp_file, "w") as f:
+		json.dump(datas, f, indent = 4, sort_keys = True)
+
+	print("write cache file", temp_file)
+
 class LuaIndexProjectCommand(sublime_plugin.WindowCommand):
 	def run(self):
 		generate_indices()
 		self.window.status_message("generate lua project index finished.")
+
+		write_debug_info()
 

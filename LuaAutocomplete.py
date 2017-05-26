@@ -2,7 +2,7 @@
 import sublime, sublime_plugin
 import re, os, itertools
 from LuaAutocomplete.locals import LocalsFinder
-from LuaAutocomplete.index_module import index_module
+from LuaAutocomplete import index_module
 
 class LocalsAutocomplete(sublime_plugin.EventListener):
 	@staticmethod
@@ -42,7 +42,7 @@ class LocalsAutocomplete(sublime_plugin.EventListener):
 		
 		src = view.substr(sublime.Region(0, view.size()))
 
-		results = index_module(view, location, src)
+		results = index_module.index_module(view, location, src)
 		if results is not None: return results
 		
 		localsfinder = LocalsFinder(src)
@@ -79,12 +79,12 @@ class RequireAutocomplete(sublime_plugin.EventListener):
 		module_path = match.group(1).split(".")
 		
 		results = []
-		
-		for proj_data in view.window().project_data()["folders"]:
-			proj_dir = proj_data["path"]
-			lua_paths = proj_data.get("lua_paths", ("", ))
-			for lpath in lua_paths:
-				cur_path = os.path.join(proj_dir, lpath, *(module_path[:-1]))
+
+		for project_path in index_module.get_all_project_paths():
+			proj_indexer = index_module.get_or_load_project_indexer(project_path)
+			for lpath in proj_indexer.lua_paths:
+				
+				cur_path = os.path.join(project_path, lpath, *(module_path[:-1]))
 				if not os.path.exists(cur_path) or not os.path.isdir(cur_path):
 					continue
 				print("curpath:", cur_path)
