@@ -42,15 +42,16 @@ def index_module(view, location, content):
 	if first_name in BUILTIN_MODULES:
 		return index_builtin(first_name)
 
-	proj_indexer = find_project_indexer(view.file_name())
-
-	indexer = proj_indexer.find_file_indexer(view.file_name())
-	if indexer is None:
-		print("failed find file indexer")
+	file_path = view.file_name()
+	proj_indexer = find_project_indexer(file_path)
+	if proj_indexer is None:
 		return
 
-	indexer.parse_content(content)
-	return indexer.index_value(first_name)
+	file_indexer = proj_indexer.parse_content(content, file_path)
+	if file_indexer is None:
+		return
+
+	return file_indexer.index_value(first_name)
 
 
 def index_builtin(key):
@@ -115,7 +116,7 @@ def find_project_indexer(file_name):
 def get_or_load_project_indexer(project_path):
 	proj_indexer = PROJECT_DATAS.get(project_path)
 	if proj_indexer is None:
-		
+		print("create project indexer", project_path)
 		proj_indexer = ProjectIndexer(project_path)
 		proj_indexer.generate_indices()
 		PROJECT_DATAS[project_path] = proj_indexer
@@ -129,9 +130,8 @@ class ProjectIndexer(object):
 	def __init__(self, project_path):
 		self.project_path = project_path
 
-		self.indices = {"_G" : [["_G", "_G"]] }
-		self.classes_info = {}
-		self.file_indexers = {}
+		self.symbols = {"_G" : [["_G", "_G"]] }
+		self.classes = {}
 
 		self.config_module = self.load_config_module()
 		self.lua_paths = []
@@ -178,49 +178,66 @@ class ProjectIndexer(object):
 				indexer = FileIndexer(self, module_name)
 				indexer.parse_file(os.path.join(root, fname))
 
-				self.file_indexers[module_name] = indexer
-
 		return
 
 	def add_symbol(self, name, symbols):
-		self.indices[name] = symbols
+		self.symbols[name] = symbols
 
 	def get_symbol(self, name):
-		return self.indices.get(name)
+		return self.symbols.get(name)
 
 	def get_or_add_class(self, class_name):
-		return self.classes_info.setdefault(class_name, {})
+		return self.classes.setdefault(class_name, {})
 
 	def get_class(self, class_name):
-		return self.classes_info.get(class_name)
+		return self.classes.get(class_name)
 
 	def is_class(self, name):
-		return name in self.classes_info
+		return name in self.classes
 
-	def find_file_indexer(self, file_path):
+	def match_file_indexer_name(self, file_path):
 		for lua_path in self.lua_paths:
 			relative_path = os.path.relpath(file_path, lua_path)
 			if relative_path[0] != '.':
-				module_name = path_to_module_name(os.path.splitext(relative_path)[0])
-
-				indexer = self.file_indexers.get(module_name)
-				if indexer is None:
-					indexer = FileIndexer(self, module_name)
-					self.file_indexers[key] = indexer
-
-				return indexer
+				fpath = os.path.splitext(relative_path)[0]
+				module_name = path_to_module_name(fpath)
+				return module_name
 
 		return None
+
+	def parse_file(self, file_path):
+		module_name = self.match_file_indexer_name(file_path)
+		if module_name is None:
+			return
+
+		file_indexer = FileIndexer(self, module_name)
+		file_indexer.parse_file(file_path)
+		return file_indexer
+
+	def parse_content(self, content, file_path):
+		module_name = self.match_file_indexer_name(file_path)
+		if module_name is None:
+			return
+
+		file_indexer = FileIndexer(self, module_name)
+		file_indexer.parse_content(content)
+		return file_indexer
 
 
 class FileIndexer:
 	def __init__(self, proj_indexer, module_name, location = 0):
 		super(FileIndexer, self).__init__()
 		self.proj_indexer = proj_indexer
+
 		self.module_name = module_name
 
+		# 当前文件所包含的其他模块。模块名 : 模块路径
 		self.requires = {}
-		self.module = {}
+
+		# 当前文件中的符号表
+		self.symbols = {}
+
+		# 当前文件中的类
 		self.classes = {}
 
 		self.location = location
@@ -231,12 +248,12 @@ class FileIndexer:
 
 	def flush(self):
 		for cname, cls_info in self.classes.items():
-			self.module[cname + "\tclass"] = cname
+			self.symbols[cname + "\tclass"] = cname
 
 			cpath = self.module_name + "." + cname
 			self.proj_indexer.add_symbol(cpath, cls_info)
 
-		self.proj_indexer.add_symbol(self.module_name, self.module)
+		self.proj_indexer.add_symbol(self.module_name, self.symbols)
 
 
 	def parse_file(self, path, encoding = "utf-8"):
@@ -258,14 +275,14 @@ class FileIndexer:
 		match = var_pattern.match(line)
 		if match:
 			var = match.group(1)
-			self.module[var + "\tvar"] = var
+			self.symbols[var + "\tvar"] = var
 			return
 
 		match = fun_pattern.match(line)
 		if match:
 			var = match.group(1)
 			args = match.group(2)
-			self.module[var + "\tfunction"] = var + "($0%s)" % args
+			self.symbols[var + "\tfunction"] = var + "($0%s)" % args
 			return
 
 		match = require_pattern.search(line)
@@ -442,8 +459,8 @@ def write_debug_info():
 
 	for path, indexer in PROJECT_DATAS.items():
 		datas[path] = {
-			"indices" : indexer.indices,
-			"classes" : indexer.classes_info,
+			"symbols" : indexer.symbols,
+			"classes" : indexer.classes,
 		}
 
 	temp_file = os.path.join(sublime.cache_path(), "lua-autocomplete-temp.json")
@@ -451,11 +468,4 @@ def write_debug_info():
 		json.dump(datas, f, indent = 4, sort_keys = True)
 
 	print("write cache file", temp_file)
-
-class LuaIndexProjectCommand(sublime_plugin.WindowCommand):
-	def run(self):
-		generate_indices()
-		self.window.status_message("generate lua project index finished.")
-
-		write_debug_info()
 

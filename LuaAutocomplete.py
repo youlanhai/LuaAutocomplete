@@ -2,7 +2,7 @@
 import sublime, sublime_plugin
 import re, os, itertools
 from LuaAutocomplete.locals import LocalsFinder
-from LuaAutocomplete import index_module
+from LuaAutocomplete import index_module as indexer
 
 class LocalsAutocomplete(sublime_plugin.EventListener):
 	@staticmethod
@@ -42,7 +42,7 @@ class LocalsAutocomplete(sublime_plugin.EventListener):
 		
 		src = view.substr(sublime.Region(0, view.size()))
 
-		results = index_module.index_module(view, location, src)
+		results = indexer.index_module(view, location, src)
 		if results is not None: return results
 		
 		localsfinder = LocalsFinder(src)
@@ -80,10 +80,10 @@ class RequireAutocomplete(sublime_plugin.EventListener):
 		
 		results = []
 
-		for project_path in index_module.get_all_project_paths():
-			proj_indexer = index_module.get_or_load_project_indexer(project_path)
+		for project_path in indexer.get_all_project_paths():
+			proj_indexer = indexer.get_or_load_project_indexer(project_path)
 			for lpath in proj_indexer.lua_paths:
-				
+
 				cur_path = os.path.join(project_path, lpath, *(module_path[:-1]))
 				if not os.path.exists(cur_path) or not os.path.isdir(cur_path):
 					continue
@@ -95,3 +95,22 @@ class RequireAutocomplete(sublime_plugin.EventListener):
 				results.extend(map(lambda x: (x+"\tmodule", x), RequireAutocomplete.filter_lua_files(files)))
 		
 		return results, sublime.INHIBIT_WORD_COMPLETIONS | sublime.INHIBIT_EXPLICIT_COMPLETIONS
+
+class LuaIndexProjectCommand(sublime_plugin.WindowCommand):
+	def run(self):
+		generate_indices()
+		self.window.status_message("generate lua project index finished.")
+
+		indexer.write_debug_info()
+
+class LuaIndexFileSave(sublime_plugin.EventListener):
+	def on_post_save(self, view):
+		file_path = view.file_name()
+		if not file_path.endswith(".lua"):
+			return
+
+		proj_indexer = indexer.find_project_indexer(file_path)
+		if proj_indexer is None:
+			return
+
+		proj_indexer.parse_file(file_path)
