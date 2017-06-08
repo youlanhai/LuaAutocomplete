@@ -364,7 +364,9 @@ class FileIndexer:
 
 	def index_value(self, key):
 		if key == "self":
-			return self.index_self(), sublime.INHIBIT_WORD_COMPLETIONS
+			ret = self.index_self()
+			if ret: return ret, sublime.INHIBIT_WORD_COMPLETIONS
+			return None
 
 		ret = self.index_class(key)
 		if ret: return ret, sublime.INHIBIT_WORD_COMPLETIONS
