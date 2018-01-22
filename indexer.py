@@ -65,9 +65,11 @@ def is_abs_path(path):
 
 def load_python_file(path):
 	module = {}
-	with open(path, "r") as f:
-		obj = compile(f.read(), path, "exec")
-		exec(obj, globals(), module)
+	content = None
+	with open(path, "r", encoding = "utf-8") as f:
+		content = f.read()
+	obj = compile(content, path, "exec")
+	exec(obj, globals(), module)
 	return module
 
 def get_all_project_paths():
@@ -147,6 +149,7 @@ class ProjectIndexer(object):
 		if not os.path.exists(config_file):
 			return None
 
+		print("load config file:", config_file)
 		return load_python_file(config_file)
 
 	def parse_config(self):
@@ -154,7 +157,7 @@ class ProjectIndexer(object):
 			return
 
 		for path in self.config_module["LUA_PATHS"]:
-			lua_path = os.path.join(self.project_path, path)
+			lua_path = os.path.normpath(os.path.join(self.project_path, path))
 			if not os.path.exists(lua_path) or not os.path.isdir(lua_path):
 				continue
 
@@ -298,7 +301,7 @@ class FileIndexer:
 
 			base_path = self.find_base_class_path(base_name)
 			if base_path is None:
-				print("Failed find base class:", cname, base_name)
+				print("Failed find base class '%s' for '%s'" % (base_name, cname))
 				return
 
 			cls_info = self.proj_indexer.get_or_add_class(cname)
@@ -318,7 +321,7 @@ class FileIndexer:
 
 				base_path = self.find_base_class_path(base_name)
 				if base_path is None:
-					print("Failed find base class:", cname, base_name)
+					print("Failed find base class '%s' for '%s'" % (base_name, cname))
 					continue
 
 				bases.append(base_path)
