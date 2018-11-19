@@ -355,7 +355,7 @@ class FileIndexer:
 		if base_path is None:
 			# find base class in current module
 			base_path = self.classes.get(base_name)
-			if base_path is None:
+			if not isinstance(base_path, str):
 				return # doesn't found
 
 			base_path = self.module_name + "." + base_path
