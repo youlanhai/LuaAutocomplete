@@ -145,7 +145,7 @@ class ProjectIndexer(object):
 		return
 
 	def load_config_module(self):
-		config_file = os.path.join(self.project_path, "lua-autocomplete.py")
+		config_file = os.path.join(self.project_path, ".luacomplete.py")
 		if not os.path.exists(config_file):
 			return None
 
