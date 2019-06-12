@@ -1,7 +1,7 @@
 [
     {
-    	"id" : "generate-lua-project-index",
+    	"id" : "generate-lua-project-index-view",
     	"caption": "Generate Lua Project Index",
-    	"command": "lua_index_project"
+    	"command": "lua_index_project_view"
     }
 ]

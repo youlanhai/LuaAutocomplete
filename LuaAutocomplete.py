@@ -103,6 +103,16 @@ class LuaIndexProjectCommand(sublime_plugin.WindowCommand):
 
 		indexer.write_debug_info()
 
+class LuaIndexProjectViewCommand(sublime_plugin.TextCommand):
+	def run(self, edit):
+		indexer.generate_indices()
+		self.window.status_message("generate lua project index finished.")
+
+		indexer.write_debug_info()
+
+	def is_visible(self):
+		return self.view.file_name().endswith(".lua")
+
 class LuaIndexFileSave(sublime_plugin.EventListener):
 	def on_post_save(self, view):
 		file_path = view.file_name()
