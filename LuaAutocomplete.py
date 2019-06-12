@@ -106,7 +106,7 @@ class LuaIndexProjectCommand(sublime_plugin.WindowCommand):
 class LuaIndexProjectViewCommand(sublime_plugin.TextCommand):
 	def run(self, edit):
 		indexer.generate_indices()
-		self.window.status_message("generate lua project index finished.")
+		self.view.window().status_message("generate lua project index finished.")
 
 		indexer.write_debug_info()
 
